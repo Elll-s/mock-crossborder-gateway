@@ -1,9 +1,14 @@
 package com.app.payment;
+
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.io.IOException;
 
 public class PaymentWebhook{
-public static void main(String[]args){
+public static void main(String[]args) throws IOException {
 String jsonPayload="{\"order_id\":\"RUB8900\",\"amount\":8900,\"status\":\"SUCCESS\"}";
 
 JsonObject jsonobject=JsonParser.parseString(jsonPayload).getAsJsonObject();
@@ -12,5 +17,10 @@ int amount=jsonobject.get("amount").getAsInt();
 String status=jsonobject.get("status").getAsString();
 
 System.out.println("order_id:"+order_id+"\n"+"amount:"+amount+"\n"+"status:"+status);
+
+String logEntry = "Order:" + order_id + "\n" + "Amount:" + amount + "\n";
+Path path = Path.of("orders.log");
+Files.writeString(path, logEntry,  StandardOpenOption.CREATE,  StandardOpenOption.APPEND);
+
 }
 }

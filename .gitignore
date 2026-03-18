@@ -2,4 +2,4 @@ text
 
 target/
 
-orders.log
+*.log

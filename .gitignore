@@ -1,5 +1,12 @@
-text
 
+# 忽略编译打包生成的文件
 target/
+*.jar
 
+# 忽略运行日志
+nohup.out
 *.log
+
+# 忽略 IDEA 开发工具自动生成的配置
+.idea/
+*.iml

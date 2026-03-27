@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: crossborder-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: payment
+    ports:
+      - "3306:3306"
+
+  redis:
+    image: redis:latest
+    container_name: crossborder-redis
+    ports:
+      - "6379:6379"
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: crossborder-mq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  gateway:
+    image: crossborder-gateway:local
+    container_name: crossborder-gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mysql
+      - redis
+      - rabbitmq
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/payment?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=root
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_RABBITMQ_HOST=rabbitmq

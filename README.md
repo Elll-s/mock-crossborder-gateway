@@ -63,3 +63,76 @@ sudo docker-compose ps
 * **并发量:** 10,000 瞬时请求
 * **穿透率:** 0% (Redis `SETNX` 神盾成功拦截所有重复构造的并发请求)
 * **系统状态:** Tomcat 0 线程阻塞，RabbitMQ 展现完美削峰（平稳堆积与异步消费），MySQL CPU 占用及落盘 I/O 稳定，彻底根除雪崩隐患。
+---
+
+## 📜 B2B API Contract (核心接口规约)
+
+为了满足企业级网关的严谨性，系统定义了极其严格的交互标准与防重放机制：
+
+**Endpoint:** `POST /api/v1/gateway/webhook/yoomoney`
+**Content-Type:** `application/json`
+
+### Headers 鉴权要求 (防重放与防篡改)
+| Header Key | Type | Description |
+| :--- | :--- | :--- |
+| `X-Signature` | String | HMAC-SHA256 动态计算的数字签名 |
+| `X-Timestamp` | Long | Unix 毫秒级时间戳 (与服务器时间误差超 5 分钟直接阻断) |
+| `X-Nonce` | String | 唯一随机数 (结合 Redis 实现 5 分钟内绝对防重放) |
+
+### Error Codes (全局异常字典)
+* `20000`: 成功接收并投递至 MQ
+* `40001`: 验签失败 (INVALID_SIGNATURE)
+* `40002`: 请求重放攻击拦截 (REPLAY_ATTACK_BLOCKED)
+* `50001`: 底层服务熔断 (SERVICE_UNAVAILABLE)
+
+---
+
+## 🔄 Core Sequence Diagram (核心业务时序图)
+
+基于 Mermaid 渲染的异步处理与双层防重流转图：
+
+```mermaid
+sequenceDiagram
+    participant Merchant as 海外网关 (YooMoney)
+    participant Gateway as Payment Gateway (Tomcat)
+    participant Redis as Redis (SETNX 锁)
+    participant MQ as RabbitMQ (异步削峰)
+    participant Consumer as 隐蔽消费者线程
+    participant DB as MySQL (ACID 兜底)
+
+    Merchant->>Gateway: POST Webhook (带签名/时间戳)
+    Gateway->>Gateway: 拦截器校验 HMAC-SHA256 签名
+    Gateway->>Redis: SETNX 尝试获取分布式锁 (TTL=24h)
+    
+    alt 锁获取失败 (并发重复请求)
+        Redis-->>Gateway: 返回 False
+        Gateway-->>Merchant: HTTP 200 (静默丢弃，防止网关死循环重试)
+    else 锁获取成功
+        Redis-->>Gateway: 返回 True
+        Gateway->>MQ: 瞬间投递订单消息至 Work Queue
+        Gateway-->>Merchant: HTTP 200 OK (0.001s 极速响应)
+        
+        Note over MQ, DB: 以下为后台异步削峰处理阶段
+        
+        MQ->>Consumer: 按照 DB 极限平滑推送消息
+        Consumer->>DB: 开启数据库事务
+        Consumer->>DB: 乐观锁更新 (WHERE status='INIT')
+        alt 写入成功
+            DB-->>Consumer: Commit Transaction
+            Consumer->>MQ: 手动 basicAck (消息安全擦除)
+        else DB 唯一索引冲突 或 状态机异常
+            DB-->>Consumer: Rollback
+            Consumer->>MQ: basicNack 并投递至 DLX (死信队列) 待人工排查
+        end
+    end
+
+🗺️ Architecture Roadmap (架构演进路线图)
+本系统目前处于 MVP（最小可行性架构）阶段，已实现核心的削峰与基础防重。为彻底对齐千万级出海支付标准，下一步的重构计划如下：
+
+[ ] T+1 对账与清算系统 (Reconciliation): 引入定时任务拉取海外网关 SFTP 每日对账单，核对本地 MySQL 记录，实现长短款自动标记与退款（Refund）冲抵链路。
+
+[ ] 严格物理状态机与乐观锁 (State Machine): 废弃简单的 UPDATE，强校验订单流转状态（INIT -> PROCESSING -> SUCCESS/FAIL），利用底层行级乐观锁彻底隔绝乱序回调。
+
+[ ] 高阶安全防御机制 (Security+): 在现有 HMAC 基础上，落地 Timestamp + Nonce 拦截器，防范黑客截获密文后的高频重放攻击 (Replay Attack)。
+
+[ ] 看门狗续命机制 (Watchdog): 引入 Redisson 替换原生 SETNX，解决 JVM Full GC 极端停顿场景下的锁提前过期与误删灾难。

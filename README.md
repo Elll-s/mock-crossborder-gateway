@@ -46,7 +46,7 @@
 
 ```bash
 # 1. Clone the repository
-git clone [https://github.com/](https://github.com/)Elll-s/mock-crossborder-gateway.git
+git clone https://github.com/Elll-s/mock-crossborder-gateway.git
 cd mock-crossborder-gateway
 
 # 2. Compile and Build
